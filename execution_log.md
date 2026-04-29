@@ -33,7 +33,7 @@
 | 里程碑 | 预计完成 | 实际完成 | 状态 |
 |--------|----------|----------|------|
 | M1: 项目骨架与配置 | 2026-04-29 | 2026-04-29 | ✅ |
-| M2: 简单 Code Gen Agent | - | - | ⏳ |
+| M2: 简单 Code Gen Agent | 2026-04-29 | 2026-04-29 | ✅ |
 | M3: 测试框架集成 | - | - | ⏳ |
 | M4: 沙箱执行环境 | - | - | ⏳ |
 | M5: 单 Agent 端到端流水线 | - | - | ⏳ |
@@ -53,6 +53,16 @@
 | 2026-04-29 | 创建 CI 流水线 | ✅ 已写入 | ruff lint + pytest + high-risk gate |
 | 2026-04-29 | 创建 agents.yaml 配置 | ✅ 已写入 | Agent 角色、模型优先级、沙箱 |
 | 2026-04-29 | 创建 Python 包骨架 | ✅ 已写入 | orchestrator/agents/sandbox/common |
+
+### M2 关键动作日志
+
+| 时间 | 动作 | 结果 | 备注 |
+|------|------|------|------|
+| 2026-04-29 | 实现 LLMClient — 多 Provider 统一接口 | ✅ 已实现 | 支持 OpenRouter/DeepSeek/OpenAI/自定义 |
+| 2026-04-29 | 实现 CodeAgent — 代码生成逻辑 | ✅ 已实现 | 含 code fence 清理、文件写入 |
+| 2026-04-29 | 实现 Orchestrator.run — 单 Agent 闭环 | ✅ 已实现 | 需求→规划→生成→输出 |
+| 2026-04-29 | 编写单元测试 18 项 | ✅ 全部通过 | LLMClient 9 + CodeAgent 7 + Orchestrator 2 |
+| 2026-04-29 | 添加 requirements.txt | ✅ 已写入 | httpx + pytest + ruff |
 
 ---
 
