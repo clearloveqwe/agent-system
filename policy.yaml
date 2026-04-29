@@ -1,0 +1,53 @@
+# system: Hermes Agent Policy
+# version: 1.0
+# description: Access control and risk classification policy
+
+network:
+  allow_outbound: true
+  blocked_cidrs:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+  allowed_domains:
+    - "*.github.com"
+    - "*.npmjs.org"
+    - "*.pypi.org"
+    - "*.docker.com"
+    - "*.googleapis.com"
+    - "*.openai.com"
+    - "*.anthropic.com"
+    - "api.deepseek.com"
+    - "api.e2b.dev"
+
+risk_classification:
+  high_risk:
+    - pattern: "db:schema:*"
+      description: "Database schema changes"
+    - pattern: "auth:*"
+      description: "Authentication / payment related code"
+    - pattern: "secret:*"
+      description: "API key or credential writes"
+    - pattern: "fs:delete:*"
+      description: "File deletion operations"
+    - pattern: "deploy:prod:*"
+      description: "Production deployment configuration"
+  medium_risk:
+    - pattern: "refactor:*"
+      description: "Large-scale code refactoring"
+    - pattern: "deps:major:*"
+      description: "Major dependency version upgrades"
+  low_risk:
+    - pattern: "code:gen:*"
+      description: "Code generation"
+    - pattern: "test:*"
+      description: "Test writing and execution"
+    - pattern: "docs:*"
+      description: "Documentation"
+    - pattern: "fix:minor:*"
+      description: "Minor bug fixes"
+
+approvals:
+  high_risk: "require_human"
+  medium_risk: "notify_only"
+  low_risk: "auto_approve"

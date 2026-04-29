@@ -1,0 +1,55 @@
+# Agent System Configuration
+
+agents:
+  max_concurrent: 6
+  max_concurrent_reserved: 10
+
+  roles:
+    - name: orchestrator
+      model_priority:
+        - provider: openrouter
+          model: anthropic/claude-sonnet-4
+        - provider: deepseek
+          model: deepseek-chat
+      timeout: 300
+
+    - name: frontend
+      model_priority:
+        - provider: deepseek
+          model: deepseek-chat
+        - provider: openrouter
+          model: anthropic/claude-haiku-3-5
+      timeout: 600
+
+    - name: backend
+      model_priority:
+        - provider: deepseek
+          model: deepseek-chat
+        - provider: openrouter
+          model: anthropic/claude-haiku-3-5
+      timeout: 600
+
+    - name: database
+      model_priority:
+        - provider: deepseek
+          model: deepseek-chat
+      timeout: 300
+
+    - name: qa
+      model_priority:
+        - provider: openrouter
+          model: anthropic/claude-haiku-3-5
+      timeout: 600
+
+sandbox:
+  provider: e2b
+  reuse: false
+  allow_network: true
+
+memory:
+  provider: chroma
+  path: ./chroma_data
+
+logging:
+  level: info
+  retention_days: 180
