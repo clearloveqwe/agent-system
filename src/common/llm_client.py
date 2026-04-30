@@ -85,6 +85,7 @@ class LLMClient:
         temperature: float = 0.3,
         max_tokens: int = 4096,
         reasoning_effort: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> str:
         """Send a chat completion request and return the response text.
 
@@ -92,6 +93,11 @@ class LLMClient:
         - Set reasoning_effort="max" for complex Agent tasks
         - When reasoning_effort is set, temperature is auto-excluded
           (thinking mode does not support temperature/top_p)
+
+        For structured output:
+        - Pass response_format={"type": "json_object"} for valid JSON
+        - Pass response_format={"type": "json_schema", "json_schema": {...}} for constrained generation
+        - Not all providers support all response_format types; falls back to text on error
         """
         base_url, api_key = self._resolve_provider(model)
 
@@ -119,8 +125,12 @@ class LLMClient:
             payload["reasoning_effort"] = reasoning_effort
             payload["extra_body"] = {"thinking": {"type": "enabled"}}
             # Thinking mode does not support temperature/top_p
+            # Note: thinking mode + response_format may conflict on some providers
         else:
             payload["temperature"] = temperature
+
+        if response_format:
+            payload["response_format"] = response_format
 
         try:
             response = await self._client.post(
