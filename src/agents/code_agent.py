@@ -5,6 +5,8 @@ from typing import Optional
 
 from .base import BaseAgent
 from src.common.llm_client import LLMClient
+from src.common.knowledge_base import KnowledgeEntry
+from src.common.knowledge_base_json import JsonKnowledgeBase
 
 # System prompt for code generation
 SYSTEM_PROMPT = """You are an expert software engineer. Generate production-ready code following these rules:
@@ -22,13 +24,20 @@ class CodeAgent(BaseAgent):
     """Agent specialized in code generation and modification.
 
     Takes a task description and generates production-ready code files.
+    Optionally uses a knowledge base to retrieve past solutions for similar tasks.
     """
 
-    def __init__(self, role: str = "developer", model_config: Optional[dict] = None):
+    def __init__(
+        self,
+        role: str = "developer",
+        model_config: Optional[dict] = None,
+        knowledge_base: Optional[JsonKnowledgeBase] = None,
+    ):
         super().__init__(role, model_config)
         self.llm = LLMClient(model_config or {})
         self.model = (model_config or {}).get("model", "deepseek-chat")
         self.reasoning_effort = (model_config or {}).get("reasoning_effort")
+        self.kb = knowledge_base
 
     async def execute(self, task: dict) -> dict:
         """Execute a code generation task.
@@ -49,12 +58,25 @@ class CodeAgent(BaseAgent):
         if not requirement:
             return {"success": False, "error": "No requirement provided"}
 
+        # Retrieve relevant past solutions from knowledge base
+        past_examples = ""
+        if self.kb:
+            similar = await self.kb.search(requirement, top_k=3, entry_type="code_gen")
+            if similar:
+                past_examples = "\n\nRelevant past solutions:\n"
+                for i, entry in enumerate(similar, 1):
+                    past_examples += f"--- Example {i} ---\n"
+                    past_examples += f"Requirement: {entry.requirement}\n"
+                    past_examples += f"Solution ({entry.language}):\n{entry.solution}\n"
+
         # Build prompt
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": self._build_prompt(requirement, language, target_path, context),
+                "content": self._build_prompt(
+                    requirement, language, target_path, context, past_examples
+                ),
             },
         ]
 
@@ -76,6 +98,17 @@ class CodeAgent(BaseAgent):
 
         # Clean up code output
         code = self._clean_code(code)
+
+        # Store result in knowledge base
+        if self.kb and code:
+            entry = KnowledgeEntry(
+                requirement=requirement,
+                solution=code,
+                language=language,
+                entry_type="code_gen",
+                metadata={"target_path": target_path} if target_path else {},
+            )
+            await self.kb.store(entry)
 
         # Write to file if target_path specified
         if target_path:
@@ -112,11 +145,14 @@ class CodeAgent(BaseAgent):
         language: str,
         target_path: Optional[str],
         context: dict,
+        past_examples: str = "",
     ) -> str:
         """Build the code generation prompt."""
         parts = [f"Generate {language} code for the following requirement:\n\n{requirement}"]
         if target_path:
             parts.append(f"\n\nFile path: {target_path}")
+        if past_examples:
+            parts.append(past_examples)
         if context:
             parts.append(f"\n\nContext:\n{context}")
 

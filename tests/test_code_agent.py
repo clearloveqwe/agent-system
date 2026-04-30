@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 
 from src.agents.code_agent import CodeAgent
+from src.common.knowledge_base import KnowledgeEntry
+from src.common.knowledge_base_json import JsonKnowledgeBase
 
 
 class TestCodeAgent:
@@ -85,3 +87,31 @@ class TestCodeAgent:
         agent = CodeAgent()
         code = "```\nprint('hi')\n```"
         assert agent._clean_code(code) == "print('hi')"
+
+    @pytest.mark.asyncio
+    async def test_execute_with_knowledge_base(self, tmp_path):
+        """CodeAgent uses KB to retrieve past solutions and stores new ones."""
+        kb = JsonKnowledgeBase(path=str(tmp_path / "kb_test"))
+        # Pre-populate KB with a relevant past solution
+        await kb.store(KnowledgeEntry(
+            requirement="Print hello",
+            solution="print('hello world')",
+            language="python",
+            entry_type="code_gen",
+        ))
+
+        agent = CodeAgent(model_config={"model": "deepseek-chat"}, knowledge_base=kb)
+        agent.llm.chat = AsyncMock(return_value="print('hello from kb')")
+
+        result = await agent.execute({
+            "requirement": "Create a script that prints hello",
+            "language": "python",
+        })
+
+        assert result["success"]
+        # Should have stored the new result
+        assert kb.count == 2
+
+        # Search should find the new entry
+        results = await kb.search("hello from kb", top_k=5)
+        assert len(results) >= 1
