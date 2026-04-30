@@ -99,9 +99,9 @@ class Orchestrator:
                     {"role": "system", "content": PLANNER_PROMPT},
                     {"role": "user", "content": requirement},
                 ],
-                model=self.config.get("planner_model", "deepseek-chat"),
-                temperature=0.1,
+                model=self.config.get("planner_model", "deepseek-v4-flash"),
                 max_tokens=2048,
+                reasoning_effort="max",
             )
             plan = json.loads(plan_text)
 

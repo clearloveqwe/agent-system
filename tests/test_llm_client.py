@@ -101,6 +101,34 @@ class TestLLMClient:
                 assert result == "Generated code"
 
     @pytest.mark.asyncio
+    async def test_chat_with_reasoning_effort_max(self):
+        """Verify reasoning_effort=max adds correct payload fields."""
+        client = LLMClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "Planned architecture"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "sk-test"}):
+            with patch.object(client._client, "post", AsyncMock(return_value=mock_response)) as mock_post:
+                result = await client.chat(
+                    messages=[{"role": "user", "content": "Design system"}],
+                    model="deepseek-v4-flash",
+                    reasoning_effort="max",
+                )
+
+                # Verify reasoning_effort was included
+                call_kwargs = mock_post.call_args[1]
+                payload = call_kwargs["json"]
+                assert payload["reasoning_effort"] == "max"
+                assert payload["extra_body"] == {"thinking": {"type": "enabled"}}
+                # temperature should NOT be present when reasoning_effort is set
+                assert "temperature" not in payload
+                assert result == "Planned architecture"
+
+    @pytest.mark.asyncio
     async def test_close(self):
         client = LLMClient()
         with patch.object(client._client, "aclose", AsyncMock()) as mock_close:

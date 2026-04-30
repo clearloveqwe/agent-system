@@ -64,6 +64,17 @@
 | 2026-04-29 | 编写单元测试 18 项 | ✅ 全部通过 | LLMClient 9 + CodeAgent 7 + Orchestrator 2 |
 | 2026-04-29 | 添加 requirements.txt | ✅ 已写入 | httpx + pytest + ruff |
 
+### API Key 与模型分配
+
+| 时间 | 动作 | 结果 | 备注 |
+|------|------|------|------|
+| 2026-04-29 | 配置 MiniMax M2.7 Key | ✅ 已写入 .env | 分配给 Frontend/Backend/Database/QA |
+| 2026-04-29 | 配置 DeepSeek V4 Key | ✅ 已写入 .env | 分配给 Orchestrator |
+| 2026-04-29 | 更新 LLMClient 支持 MiniMax | ✅ 已实现 | api.minimaxi.com 路由 |
+| 2026-04-29 | 更新 LLMClient 支持 reasoning_effort | ✅ 已实现 | 思考模式 + extra_body |
+| 2026-04-29 | 更新 agents.yaml 模型分配 | ✅ 已配置 | Orchestrator→DeepSeek-V4-Flash(max), 其余→MiniMax M2.7 |
+| 2026-04-29 | 测试 24 项 | ✅ 全部通过 | 含 reasoning_effort 验证 |
+
 ---
 
 ## 问题记录

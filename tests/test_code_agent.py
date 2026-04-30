@@ -17,6 +17,12 @@ class TestCodeAgent:
     def test_init(self, agent):
         assert agent.role == "developer"
         assert agent.model == "deepseek-chat"
+        assert agent.reasoning_effort is None
+
+    def test_init_with_reasoning_effort(self):
+        agent = CodeAgent(model_config={"model": "deepseek-v4-flash", "reasoning_effort": "max"})
+        assert agent.model == "deepseek-v4-flash"
+        assert agent.reasoning_effort == "max"
 
     @pytest.mark.asyncio
     async def test_execute_no_requirement(self, agent):

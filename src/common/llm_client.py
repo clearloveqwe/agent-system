@@ -85,8 +85,15 @@ class LLMClient:
         model: str = "deepseek-chat",
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: Optional[str] = None,
     ) -> str:
-        """Send a chat completion request and return the response text."""
+        """Send a chat completion request and return the response text.
+
+        For DeepSeek thinking mode:
+        - Set reasoning_effort="max" for complex Agent tasks
+        - When reasoning_effort is set, temperature is auto-excluded
+          (thinking mode does not support temperature/top_p)
+        """
         base_url, api_key = self._resolve_provider(model)
 
         if not api_key:
@@ -99,12 +106,22 @@ class LLMClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": model.split("/", 1)[-1] if "/" in model else model,
+
+        # Extract clean model name (strip provider prefix)
+        clean_model = model.split("/", 1)[-1] if "/" in model else model
+
+        payload: dict = {
+            "model": clean_model,
             "messages": messages,
-            "temperature": temperature,
             "max_tokens": max_tokens,
         }
+
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
+            payload["extra_body"] = {"thinking": {"type": "enabled"}}
+            # Thinking mode does not support temperature/top_p
+        else:
+            payload["temperature"] = temperature
 
         try:
             response = await self._client.post(

@@ -28,6 +28,7 @@ class CodeAgent(BaseAgent):
         super().__init__(role, model_config)
         self.llm = LLMClient(model_config or {})
         self.model = (model_config or {}).get("model", "deepseek-chat")
+        self.reasoning_effort = (model_config or {}).get("reasoning_effort")
 
     async def execute(self, task: dict) -> dict:
         """Execute a code generation task.
@@ -64,6 +65,7 @@ class CodeAgent(BaseAgent):
                 model=self.model,
                 temperature=0.2,
                 max_tokens=4096,
+                reasoning_effort=self.reasoning_effort,
             )
         except Exception as e:
             return {
