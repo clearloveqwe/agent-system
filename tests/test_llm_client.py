@@ -17,6 +17,27 @@ class TestLLMClient:
             assert "api.deepseek.com" in url
             assert key == "sk-test"
 
+    def test_resolve_provider_minimax(self):
+        client = LLMClient()
+        with patch.dict("os.environ", {"MINIMAX_API_KEY": "mm-test"}):
+            url, key = client._resolve_provider("minimax/MiniMax-M2.7")
+            assert "api.minimaxi.com" in url
+            assert key == "mm-test"
+
+    def test_resolve_provider_minimax_by_prefix(self):
+        client = LLMClient()
+        with patch.dict("os.environ", {"MINIMAX_API_KEY": "mm-test"}):
+            url, key = client._resolve_provider("MiniMax-M2.7")
+            assert "api.minimaxi.com" in url
+            assert key == "mm-test"
+
+    def test_resolve_provider_minimax_by_M2_prefix(self):
+        client = LLMClient()
+        with patch.dict("os.environ", {"MINIMAX_API_KEY": "mm-test"}):
+            url, key = client._resolve_provider("M2.7")
+            assert "api.minimaxi.com" in url
+            assert key == "mm-test"
+
     def test_resolve_provider_openrouter_explicit(self):
         client = LLMClient()
         with patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-test"}):
@@ -44,7 +65,7 @@ class TestLLMClient:
                 await client.chat(messages=[{"role": "user", "content": "hi"}])
 
     @pytest.mark.asyncio
-    async def test_chat_success(self):
+    async def test_chat_success_deepseek(self):
         client = LLMClient()
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -60,6 +81,24 @@ class TestLLMClient:
                     model="deepseek-chat",
                 )
                 assert result == "Hello, world!"
+
+    @pytest.mark.asyncio
+    async def test_chat_success_minimax(self):
+        client = LLMClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "Generated code"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.dict("os.environ", {"MINIMAX_API_KEY": "mm-test"}):
+            with patch.object(client._client, "post", AsyncMock(return_value=mock_response)):
+                result = await client.chat(
+                    messages=[{"role": "user", "content": "Write a React component"}],
+                    model="minimax/MiniMax-M2.7",
+                )
+                assert result == "Generated code"
 
     @pytest.mark.asyncio
     async def test_close(self):

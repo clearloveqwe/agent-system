@@ -7,38 +7,37 @@ agents:
   roles:
     - name: orchestrator
       model_priority:
-        - provider: openrouter
-          model: anthropic/claude-sonnet-4
         - provider: deepseek
           model: deepseek-chat
+      description: "Architecture design, task decomposition, complex reasoning"
       timeout: 300
 
     - name: frontend
       model_priority:
-        - provider: deepseek
-          model: deepseek-chat
-        - provider: openrouter
-          model: anthropic/claude-haiku-3-5
+        - provider: minimax
+          model: MiniMax-M2.7
+      description: "Frontend code generation (React/Vue)"
       timeout: 600
 
     - name: backend
       model_priority:
-        - provider: deepseek
-          model: deepseek-chat
-        - provider: openrouter
-          model: anthropic/claude-haiku-3-5
+        - provider: minimax
+          model: MiniMax-M2.7
+      description: "Backend code generation (FastAPI/Express)"
       timeout: 600
 
     - name: database
       model_priority:
-        - provider: deepseek
-          model: deepseek-chat
+        - provider: minimax
+          model: MiniMax-M2.7
+      description: "Database schema and migration generation"
       timeout: 300
 
     - name: qa
       model_priority:
-        - provider: openrouter
-          model: anthropic/claude-haiku-3-5
+        - provider: minimax
+          model: MiniMax-M2.7
+      description: "Test generation and quality assurance"
       timeout: 600
 
 sandbox:

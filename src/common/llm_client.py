@@ -22,6 +22,10 @@ DEFAULT_PROVIDERS = {
         "base_url": "https://api.anthropic.com/v1",
         "api_key_env": "ANTHROPIC_API_KEY",
     },
+    "minimax": {
+        "base_url": "https://api.minimaxi.com/v1",
+        "api_key_env": "MINIMAX_API_KEY",
+    },
 }
 
 
@@ -63,8 +67,9 @@ class LLMClient:
 
         # Infer provider from model name prefix
         for prefix, provider in [("deepseek", "deepseek"), ("gpt", "openai"),
-                                  ("claude", "openrouter"), ("gemini", "openrouter")]:
-            if model.startswith(prefix):
+                                  ("claude", "openrouter"), ("gemini", "openrouter"),
+                                  ("minimax", "minimax"), ("m2", "minimax")]:
+            if model.lower().startswith(prefix):
                 info = DEFAULT_PROVIDERS[provider]
                 key = os.getenv(info["api_key_env"])
                 return info["base_url"], key or ""
