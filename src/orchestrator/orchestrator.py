@@ -135,7 +135,7 @@ Rules:
   5. Non-functional requirements (performance, security)
   6. Constraints (time, budget, deployment)
 - You have the CURRENT clarification state below. Build on it, don't restart.
-- When you have enough info -> submit. Aim to submit within 5-6 questions.
+- When you have enough info -> submit. You MUST submit within 6 questions.
 - Each question should target a field that is still empty or incomplete in the current state.
 - For the clarification object, use realistic IDs like 'FR-1', 'FR-2' for functional requirements.
 - If the user says they don't know or don't care about something, mark it as an explicit assumption."""
@@ -193,30 +193,33 @@ class ClarifySession:
             )
 
         turn_summary = ""
+        user_turns = 0
         if self.turns:
             lines = []
             for t in self.turns:
                 role = "📋 Assistant" if t["role"] == "assistant" else "👤 User"
                 content = t["content"][:300]
                 lines.append(f"{role}: {content}")
+                if t["role"] == "user":
+                    user_turns += 1
             turn_summary = "\n\nConversation so far:\n" + "\n".join(lines[-8:])
 
         user_message = (
             f"Current state of requirements clarification."
             f"{state_prompt}"
             f"{turn_summary}"
-            "\n\nDecide: ask another question or submit the final requirement."
+            f"\n\n{'' if user_turns < self.MAX_TURNS else '⚠️  MAX QUESTIONS REACHED. You MUST submit the requirement now.'}"
+            f"\n\nDecide: ask another question or submit the final requirement."
         )
 
         schema = ClarifyResponse.model_json_schema()
         response_format = {
-            "type": "json_schema",
-            "json_schema": {"name": "ClarifyResponse", "schema": schema},
+            "type": "json_object",
         }
 
         plan_text = await self.llm.chat(
             messages=[
-                {"role": "system", "content": CLARIFY_PROMPT},
+                {"role": "system", "content": CLARIFY_PROMPT + f"\n\nYou MUST respond with valid JSON matching this schema:\n{json.dumps(schema, indent=2)}"},
                 {"role": "user", "content": user_message},
             ],
             model=self.config.get("discuss_model", "deepseek-v4-flash"),
@@ -226,6 +229,21 @@ class ClarifySession:
         )
 
         response = ClarifyResponse.model_validate_json(plan_text)
+
+        # Hard cap: if user has answered MAX_TURNS questions, force submit
+        user_turns_after = sum(1 for t in self.turns if t["role"] == "user")
+        if response.action == "ask" and user_turns_after >= self.MAX_TURNS:
+            # Build a minimal submit from current state
+            response = ClarifyResponse(
+                action="submit",
+                summary_so_far="Max questions reached, submitting current understanding",
+                clarification=current_state or ClarifiedRequirement(
+                    project_name="Project",
+                    project_goal=user_message[:200],
+                    functional_requirements=[],
+                ),
+            )
+
         self.turns.append({"role": "assistant", "content": response.summary_so_far or response.question})
         return response
 
