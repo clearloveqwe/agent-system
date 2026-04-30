@@ -45,3 +45,10 @@ logs/*.log
 htmlcov/
 .pytest_cache/
 coverage.xml
+
+# Compiled binaries
+*.out
+*.o
+*.obj
+*.so
+*.a
