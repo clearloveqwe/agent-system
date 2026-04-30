@@ -1,7 +1,6 @@
 """JSON file-based knowledge base — lightweight, zero dependencies, for dev/test."""
 
 import json
-import os
 import uuid
 from pathlib import Path
 from typing import Optional

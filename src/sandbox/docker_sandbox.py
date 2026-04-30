@@ -16,15 +16,6 @@ LANGUAGE_IMAGES = {
     "shell": "ubuntu:24.04",
 }
 
-LANGUAGE_COMMANDS = {
-    "python": ["python3", "-c"],
-    "javascript": ["node", "-e"],
-    "typescript": ["node", "-e"],
-    "bash": ["bash", "-c"],
-    "shell": ["bash", "-c"],
-}
-
-
 class DockerSandbox(Sandbox):
     """Local Docker sandbox — runs code in ephemeral Docker containers.
 
@@ -82,7 +73,6 @@ class DockerSandbox(Sandbox):
     async def run_code(self, code: str, language: str = "python") -> SandboxResult:
         """Write code to a temp file and run in Docker container."""
         image = self.default_image or LANGUAGE_IMAGES.get(language, "python:3.12-slim")
-        cmd_template = LANGUAGE_COMMANDS.get(language, ["python3", "-c"])
 
         # Write code to a file in the workdir
         ext = {"python": ".py", "javascript": ".js", "typescript": ".ts", "bash": ".sh"}

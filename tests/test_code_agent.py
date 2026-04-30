@@ -1,6 +1,6 @@
 """Tests for CodeAgent."""
 
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 

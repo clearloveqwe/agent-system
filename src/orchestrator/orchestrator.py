@@ -1,7 +1,6 @@
 """Orchestrator — single Agent loop: requirement → plan → code → output."""
 
 import json
-import os
 from typing import Optional
 
 from src.agents.code_agent import CodeAgent

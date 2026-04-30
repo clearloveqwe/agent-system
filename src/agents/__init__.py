@@ -1,2 +1,2 @@
-from .base import BaseAgent
-from .code_agent import CodeAgent
+from .base import BaseAgent as BaseAgent
+from .code_agent import CodeAgent as CodeAgent
