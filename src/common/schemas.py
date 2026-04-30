@@ -102,6 +102,77 @@ class PlanDraft(BaseModel):
         return "\n".join(lines)
 
 
+# ── Clarification (Handoff) Schemas ──────────────────────────────
+
+
+class FunctionalRequirement(BaseModel):
+    """A single functional requirement in the clarified spec."""
+
+    id: str = Field(description="Unique identifier")
+    description: str = Field(description="Clear functional description, avoid implementation details")
+    user_story: str = Field(default="", description="Optional user story to convey intent")
+    acceptance_criteria: list[str] = Field(default_factory=list, description="Acceptance criteria list")
+    priority: str = Field(default="must", description="Priority level (must/should/could)")
+
+
+class NonFunctionalRequirement(BaseModel):
+    """Non-functional requirement for the project."""
+
+    category: str = Field(description="Category: performance, security, usability, etc.")
+    description: str = Field(description="What is required")
+    target_value: Optional[str] = Field(default=None, description="Measurable target, e.g. 'page load < 2s'")
+
+
+class ClarifiedRequirement(BaseModel):
+    """The handoff document between discuss_llm and planner_llm.
+
+    Produced by discuss_llm after a multi-turn clarification conversation.
+    Consumed by planner_llm to generate a ProjectPlan.
+    """
+
+    project_name: str
+    project_goal: str = Field(description="Project goal in 1-2 sentences")
+    target_users: Optional[str] = Field(default=None, description="Target user description")
+    functional_requirements: list[FunctionalRequirement] = Field(
+        description="Functional requirements the project must satisfy"
+    )
+    non_functional_requirements: list[NonFunctionalRequirement] = Field(
+        default_factory=list,
+        description="Non-functional requirements (performance, security, etc.)",
+    )
+    tech_stack_preference: Optional[dict] = Field(
+        default=None,
+        description="Preferred tech stack, e.g. {'frontend': 'React', 'backend': 'FastAPI'}",
+    )
+    constraints: Optional[str] = Field(default=None, description="Time, budget, compliance constraints")
+    confirmed_assumptions: list[str] = Field(
+        default_factory=list,
+        description="Assumptions the user has confirmed during the conversation",
+    )
+    open_questions: list[str] = Field(
+        default_factory=list,
+        description="Questions that could not be resolved; flagged as risk for planner",
+    )
+
+
+class ClarifyResponse(BaseModel):
+    """discuss_llm response during a clarification conversation.
+
+    - action='ask': LLM wants to ask the user another question
+    - action='submit': LLM has enough info and is submitting the final spec
+    """
+
+    action: str = Field(pattern="^(ask|submit)$")
+    question: str = Field(default="", description="Question for the user (when action=ask)")
+    summary_so_far: str = Field(default="", description="Brief summary of what's been gathered so far")
+
+    # Populated only when action='submit'
+    clarification: Optional[ClarifiedRequirement] = Field(
+        default=None,
+        description="Final clarified requirement (only when action=submit)",
+    )
+
+
 # ── Sandbox Result Schema ───────────────────────────────────────
 
 

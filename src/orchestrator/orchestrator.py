@@ -15,6 +15,8 @@ from src.common.llm_client import LLMClient
 from src.common.knowledge_base import KnowledgeEntry
 from src.common.knowledge_base import BaseKnowledgeBase
 from src.common.schemas import (
+    ClarifiedRequirement,
+    ClarifyResponse,
     FileSpec,
     PipelineFileResult,
     PipelineResult,
@@ -103,6 +105,165 @@ Rules for discussion:
 - Use relative paths from the project root
 
 IMPORTANT: Return ONLY valid JSON. No markdown fences, no explanations."""
+
+CLARIFY_PROMPT = """You are a requirements analyst. Your job is to clarify a user's vague project idea into a structured specification.
+
+You drive a multi-turn conversation. Your output is a JSON object with one of two actions:
+
+### If you need more information (action="ask"):
+{
+  "action": "ask",
+  "question": "Your one question here",
+  "summary_so_far": "Brief summary of what you've gathered so far"
+}
+
+### If you have enough information (action="submit"):
+{
+  "action": "submit",
+  "summary_so_far": "Summary of the clarified requirement",
+  "clarification": { ... ClarifiedRequirement object ... }
+}
+
+Rules:
+- Ask ONE question at a time. Never ask multiple questions in one turn.
+- Be conversational, friendly, and specific.
+- Cover these dimensions (not necessarily in this order):
+  1. Project name and overall goal
+  2. Core features (functional requirements)
+  3. Target users
+  4. Preferred tech stack
+  5. Non-functional requirements (performance, security)
+  6. Constraints (time, budget, deployment)
+- You have the CURRENT clarification state below. Build on it, don't restart.
+- When you have enough info -> submit. Aim to submit within 5-6 questions.
+- Each question should target a field that is still empty or incomplete in the current state.
+- For the clarification object, use realistic IDs like 'FR-1', 'FR-2' for functional requirements.
+- If the user says they don't know or don't care about something, mark it as an explicit assumption."""
+
+
+class ClarifySession:
+    """Manages a multi-turn clarification conversation with the user.
+
+    1. Call ask_question() to start or continue the conversation
+    2. If it returns a question, present it to the user and await their answer
+    3. Call record_answer(session, user_answer) with the user's response
+    4. Repeat until ask_question() returns action='submit'
+    5. Call submit_clarified(session) to get the final ClarifiedRequirement
+
+    Usage (from the agent/chat layer):
+        session = ClarifySession(discuss_llm, config)
+        while True:
+            response = await session.ask(history, current_state)
+            if response.action == "submit":
+                req = response.clarification
+                break
+            # Present response.question to user
+            user_answer = await get_user_input()
+            history.append(("user", user_answer))
+
+    The session preserves all conversation turns for traceability.
+    """
+
+    MAX_TURNS = 10
+
+    def __init__(self, discuss_llm: LLMClient, config: Optional[dict] = None):
+        self.llm = discuss_llm
+        self.config = config or {}
+        self.turns: list[dict] = []  # Full conversation history for traceability
+
+    async def ask(
+        self,
+        current_state: Optional[ClarifiedRequirement] = None,
+    ) -> ClarifyResponse:
+        """Send the current conversation state to discuss_llm and get the next response.
+
+        Returns a ClarifyResponse with either a question (action='ask')
+        or the final requirement (action='submit').
+        """
+        # Build messages: system prompt + current state + conversation history
+        state_json = ""
+        if current_state:
+            state_json = current_state.model_dump_json(indent=2)
+
+        state_prompt = ""
+        if state_json:
+            state_prompt = (
+                f"\n\nHere is the CURRENT clarification state "
+                f"(fields may be partially filled):\n{state_json}"
+            )
+
+        turn_summary = ""
+        if self.turns:
+            lines = []
+            for t in self.turns:
+                role = "📋 Assistant" if t["role"] == "assistant" else "👤 User"
+                content = t["content"][:300]
+                lines.append(f"{role}: {content}")
+            turn_summary = "\n\nConversation so far:\n" + "\n".join(lines[-8:])
+
+        user_message = (
+            f"Current state of requirements clarification."
+            f"{state_prompt}"
+            f"{turn_summary}"
+            "\n\nDecide: ask another question or submit the final requirement."
+        )
+
+        schema = ClarifyResponse.model_json_schema()
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {"name": "ClarifyResponse", "schema": schema},
+        }
+
+        plan_text = await self.llm.chat(
+            messages=[
+                {"role": "system", "content": CLARIFY_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            model=self.config.get("discuss_model", "deepseek-v4-flash"),
+            max_tokens=4096,
+            reasoning_effort="max",
+            response_format=response_format,
+        )
+
+        response = ClarifyResponse.model_validate_json(plan_text)
+        self.turns.append({"role": "assistant", "content": response.summary_so_far or response.question})
+        return response
+
+    def record_answer(self, answer: str):
+        """Record the user's answer in the conversation history.
+
+        Call this AFTER presenting the question to the user and getting their response.
+        """
+        self.turns.append({"role": "user", "content": answer})
+
+
+def validate_clarified_requirement(req: ClarifiedRequirement) -> tuple[bool, list[str]]:
+    """Validate a ClarifiedRequirement before handing it to planner_llm.
+
+    Returns (is_valid, error_messages).
+    """
+    errors: list[str] = []
+
+    if not req.project_name.strip():
+        errors.append("project_name is required")
+    if not req.project_goal.strip():
+        errors.append("project_goal is required")
+    if not req.functional_requirements:
+        errors.append("at least one functional_requirement is required")
+
+    # Check for duplicate IDs
+    ids = [fr.id for fr in req.functional_requirements]
+    if len(ids) != len(set(ids)):
+        duplicates = [x for x in ids if ids.count(x) > 1]
+        errors.append(f"duplicate functional requirement IDs: {set(duplicates)}")
+
+    # Check priority values
+    valid_priorities = {"must", "should", "could"}
+    for fr in req.functional_requirements:
+        if fr.priority not in valid_priorities:
+            errors.append(f"invalid priority '{fr.priority}' for {fr.id}")
+
+    return len(errors) == 0, errors
 
 
 class Orchestrator:
@@ -231,18 +392,67 @@ class Orchestrator:
 
     async def plan_draft(
         self,
-        requirement: str,
+        requirement: Optional[str] = None,
         context: Optional[str] = None,
+        clarified_req: Optional[ClarifiedRequirement] = None,
     ) -> PlanDraft:
         """Generate an initial architecture draft for user discussion.
+
+        Two input modes:
+        1. Plain text: pass requirement=str (natural language)
+        2. Structured: pass clarified_req=ClarifiedRequirement (from ClarifySession)
 
         Produces a main proposal + 1-2 alternatives.
         The draft can be displayed via `.present()` for user review.
         """
         messages = [
             {"role": "system", "content": DISCUSSION_PROMPT},
-            {"role": "user", "content": requirement},
         ]
+
+        if clarified_req:
+            # Structured handoff from discuss_llm → planner
+            req_text = (
+                f"## Clarified Requirement\n\n"
+                f"**Project:** {clarified_req.project_name}\n"
+                f"**Goal:** {clarified_req.project_goal}\n"
+                f"**Target Users:** {clarified_req.target_users or 'Not specified'}\n\n"
+                f"### Functional Requirements\n"
+            )
+            for fr in clarified_req.functional_requirements:
+                req_text += f"- [{fr.priority.upper()}] {fr.id}: {fr.description}\n"
+                if fr.acceptance_criteria:
+                    for ac in fr.acceptance_criteria:
+                        req_text += f"  - AC: {ac}\n"
+
+            if clarified_req.non_functional_requirements:
+                req_text += "\n### Non-Functional Requirements\n"
+                for nfr in clarified_req.non_functional_requirements:
+                    target = f" → {nfr.target_value}" if nfr.target_value else ""
+                    req_text += f"- {nfr.category}: {nfr.description}{target}\n"
+
+            if clarified_req.tech_stack_preference:
+                stack = ", ".join(f"{k}={v}" for k, v in clarified_req.tech_stack_preference.items())
+                req_text += f"\n**Tech Stack:** {stack}\n"
+
+            if clarified_req.constraints:
+                req_text += f"\n**Constraints:** {clarified_req.constraints}\n"
+
+            if clarified_req.confirmed_assumptions:
+                req_text += "\n### Confirmed Assumptions\n"
+                for a in clarified_req.confirmed_assumptions:
+                    req_text += f"- {a}\n"
+
+            if clarified_req.open_questions:
+                req_text += "\n### ⚠️ Open Questions (unresolved risks)\n"
+                for q in clarified_req.open_questions:
+                    req_text += f"- {q}\n"
+
+            messages.append({"role": "user", "content": req_text})
+        elif requirement:
+            messages.append({"role": "user", "content": requirement})
+        else:
+            raise ValueError("Either requirement= or clarified_req= must be provided")
+
         if context:
             messages.append({"role": "user", "content": f"Context:\n{context}"})
 
