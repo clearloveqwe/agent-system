@@ -36,7 +36,7 @@
 | M2: 简单 Code Gen Agent | 2026-04-29 | 2026-04-29 | ✅ |
 | M3: 测试框架集成 | 2026-04-29 | 2026-04-29 | ✅ |
 | M4: 沙箱执行环境 | 2026-04-29 | 2026-04-29 | ✅ |
-| M5: 单 Agent 端到端流水线 | - | - | ⏳ |
+| M5: 单 Agent 端到端流水线 | 2026-04-29 | 2026-04-29 | ✅ |
 
 ### M1 关键动作日志
 
@@ -97,13 +97,66 @@
 | 2026-04-29 | 实现 DockerSandbox（Docker 本地沙箱） | ✅ 已实现 | subprocess 调用，network_disabled 选项 |
 | 2026-04-29 | Docker + E2B 沙箱测试 17 项 | ✅ 全部通过 | Mock 模式，无需真实 Docker/E2B |
 
+### M5 关键动作日志
+
+| 时间 | 动作 | 结果 | 备注 |
+|------|------|------|------|
+| 2026-04-29 | 改造 Orchestrator — 注入 Sandbox + KB | ✅ 已实现 | config/agents.yaml 驱动 |
+| 2026-04-29 | 实现生成 → 沙箱写入 → 测试执行 → 检验 | ✅ 已实现 | 每文件独立 sandbox test |
+| 2026-04-29 | 实现 Healing 重试循环（×3） | ✅ 已实现 | 失败后携带 stderr 重生成 |
+| 2026-04-29 | 实现 Pipeline 级测试（pytest 沙箱内） | ✅ 已实现 | 全局测试 + 单文件双重验证 |
+| 2026-04-29 | 实现 KB 自动存储成功经验 | ✅ 已实现 | PipelineResult.kb_stored |
+| 2026-04-29 | 新增 PipelineFileResult / PipelineResult 数据类 | ✅ 已实现 | to_dict() 序列化 |
+| 2026-04-29 | 新增测试 13 项 | ✅ 69/69 通过 | 覆盖 plan/generate/heal/exhaust/KB/test |
+
 ---
 
 ## 问题记录
 
-| 日期 | 现象 | 已尝试方法 | 当前状态 | 需要支持 |
-|------|------|-----------|----------|----------|
-| - | - | - | - | - |
+| 日期 | 现象 | 根因 | 修复 | 预防措施 |
+|------|------|------|------|----------|
+| 2026-04-29 | CI → ruff check 失败 (F401，20 个错误) | 代码快速迭代中"防御性导入"未清理，__init__.py 导出缺 `as` 别名，本地未跑 lint 即提交 | `ruff check --fix` 自动修复 6 个，显式 `as` 别名修复 14 个 | 见下方「F401 根因分析与预防」|
+
+---
+
+### F401 根因分析与预防
+
+#### 现象
+
+GitHub Actions CI 中 `ruff check src/ tests/` 报 20 个 `F401`（Module imported but unused）错误，含 `unittest.mock.patch`、`os`、`json` 等标准库及项目内模块，流程 exit code 1 终止。
+
+#### 根因链
+
+```
+代码快速迭代（M2-M4）+ 代码生成→编缉器→提交 跳过 lint
+         │
+         ▼
+防御性导入：写 imports 时"先全部导入，用到时再说"
+         │
+         ▼
+__init__.py 裸导出：`from .x import X` → ruff 认为 X 未在当前模块使用
+         │
+         ▼
+本地验证不完整：只跑 pytest，未跑 ruff check
+         │
+         ▼
+CI 拦截，反馈延迟 2-3 分钟
+```
+
+#### 三类典型场景
+
+| 场景 | 示例 | 修复方式 |
+|------|------|----------|
+| 标准库/三方库用不到 | `import os`, `import json` | 直接删除 |
+| 调试变量留在代码里 | `LANGUAGE_COMMANDS`、`cmd_template` | 确认无用后删除 |
+| __init__.py 转发导出 | `from .code_agent import CodeAgent` | 加 `as` 别名：`from .code_agent import CodeAgent as CodeAgent`，或 `# noqa: F401` |
+
+#### 预防措施（写入项目规范）
+
+1. **提交前必须全量检查**：`ruff check . && pytest`
+2. **代码生成后加一步 lint**：Agent 写完文件后立即执行 `ruff check --fix <file>` 再提交
+3. **__init__.py 统一风格**：所有导出加 `as` 别名（PEP 484 推荐 + 消除 F401）
+4. **CI 保留 lint 门禁**：不允许 `exit code 1` 通过，保留当前配置
 
 ---
 

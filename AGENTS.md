@@ -9,6 +9,20 @@ This file defines agent behavior within this repository.
 - **Surgical changes** — touch only what you must
 - **Goal-driven execution** — define success criteria, loop until verified
 
+## Lint & Commit Workflow (RULE: enforce before every commit)
+
+1. **Write code & tests** as normal
+2. **Lint before commit** — run `ruff check src/ tests/` and fix all errors
+   - Auto-fix: `ruff check --fix src/ tests/` (handles ~30% of issues)
+   - `__init__.py` exports: always use `as` alias (`from .x import X as X`) or `# noqa: F401`
+   - Remove unused imports immediately — don't leave "defensive imports" for later
+   - Never commit with `ruff check` exit code != 0
+3. **Test before commit** — `pytest` must pass (coverage ≥ 85%)
+4. **Final sanity** — `ruff check . && pytest` to confirm both pass
+5. **Commit & push** — only if both steps 2-4 pass
+
+If CI catches a lint/test failure, treat it as a **process bug** — fix the local workflow, not just the symptom.
+
 ## Project Context
 
 This is a multi-agent system for full-stack web application development.

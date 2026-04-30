@@ -32,6 +32,31 @@
 
 （阶段一完成后补充）
 
+## 开发工作流
+
+提交代码前必须执行以下两步，否则 CI 会拦截：
+
+```bash
+# 1. Lint 检查（必须 0 errors）
+ruff check src/ tests/
+
+# 2. 单元测试（必须全部通过）
+pytest
+```
+
+**常见 lint 陷阱：**
+- `__init__.py` 的导出必须加 `as` 别名，否则 ruff F401 报错
+  ```python
+  # ❌ 错误
+  from .code_agent import CodeAgent
+  # ✅ 正确
+  from .code_agent import CodeAgent as CodeAgent
+  ```
+- 不要留"防御性导入"（先导入、后不用）— 用完立即删除
+- `ruff check --fix` 可自动修复约 30% 的简单问题，复杂问题需手动处理
+
+> 完整规范见 `AGENTS.md`（Agent 行为约束）和 `execution_log.md`（问题追溯）。
+
 ## 技术栈
 
 - **LLM 策略：** 复杂任务→海外顶级模型，常规任务→DeepSeek/Qwen
