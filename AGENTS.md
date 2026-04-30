@@ -36,30 +36,59 @@ Agents in this repo should:
 
 ## Discussion-Style Planning (RULE: use for all user-facing code generation)
 
-When a user asks to generate code for a project, follow this workflow:
+When a user asks to generate code for a project, follow this three-phase workflow:
 
-**Step 1: Draft** — Call `orchestrator.plan_draft(requirement)` to generate initial
-architecture draft with 1-2 alternatives. Show the user `draft.present()`.
+**Phase 1: Clarify** — Before any architecture or code, clarify the requirement.
+Use `ClarifySession` to conduct a multi-turn conversation:
+1. Call `session.ask(current_state)` to get the LLM's next question or submission
+2. If `action == "ask"`, show the question to the user, collect their answer,
+   call `session.record_answer(answer)`, and repeat
+3. If `action == "submit"`, you have a `ClarifiedRequirement` — validate it with
+   `validate_clarified_requirement()` before passing to the planner
 
-**Step 2: Discuss** — Wait for user feedback. Call `orchestrator.plan_refine(draft, feedback)`
-to update. Repeat until the user says "confirm" / "proceed" / "继续".
+**Phase 2: Draft** — Call `orchestrator.plan_draft(clarified_req=req)` to generate
+initial architecture draft with 1-2 alternatives. Show the user `draft.present()`.
+If the user has feedback, call `orchestrator.plan_refine(draft, feedback)` to update.
+Repeat until the user says "confirm" / "proceed" / "继续".
 
-**Step 3: Execute** — Call `orchestrator.run_with_plan(draft.plan)` to generate code,
-run sandbox tests, and store results.
+**Phase 3: Execute** — Call `orchestrator.run_with_plan(draft.plan)` to generate code,
+run sandbox tests, heal on failure, and store results.
 
-Do NOT skip to code generation without a discussion cycle first. The discussion
-ensures the user sees and approves the architecture before any code is written.
+Do NOT skip to code generation without completing Phase 1 and Phase 2 first.
+The discussion ensures the user sees and approves the architecture before any code is written.
 
 ```python
-# Example workflow
-from src.orchestrator.orchestrator import Orchestrator
+# Complete workflow
+from src.orchestrator.orchestrator import Orchestrator, ClarifySession, validate_clarified_requirement
+from src.common.llm_client import LLMClient
+from src.common.schemas import ClarifiedRequirement
 
 orc = Orchestrator()
-draft = await orc.plan_draft("Build a todo API")
+llm = LLMClient()
+session = ClarifySession(discuss_llm=llm)
+
+# Phase 1: Clarify
+state = ClarifiedRequirement(project_name="App", project_goal="...", functional_requirements=[])
+while True:
+    resp = await session.ask(current_state=state)
+    if resp.action == "submit":
+        clarified = resp.clarification
+        valid, errors = validate_clarified_requirement(clarified)
+        if not valid:
+            # Handle validation errors
+            pass
+        break
+    # Show question to user, get answer
+    session.record_answer(user_answer)
+
+# Phase 2: Draft + Discuss
+draft = await orc.plan_draft(clarified_req=clarified)
 print(draft.present())
-# User: "Add SQLite"
-draft = await orc.plan_refine(draft, "Add SQLite")
+# User feedback → refine
+draft = await orc.plan_refine(draft, feedback)
 # User: "confirm"
+
+# Phase 3: Execute
 result = await orc.run_with_plan(draft.plan)
 ```
 
