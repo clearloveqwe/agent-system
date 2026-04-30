@@ -19,6 +19,7 @@ from src.common.schemas import (
     PipelineFileResult,
     PipelineResult,
     PipelineTestResult,
+    PlanDraft,
     ProjectPlan,
 )
 from src.sandbox.base import Sandbox as Sandbox
@@ -68,6 +69,41 @@ Test output (stdout):
 
 Task: Fix the code so all tests pass. Output ONLY the corrected code — no explanations, no markdown fences."""
 
+DISCUSSION_PROMPT = """You are a senior software architect leading a design review session.
+
+Your task: given a user requirement and optional feedback, propose a project architecture.
+
+Output valid JSON matching this schema:
+{
+  "summary": "Brief description of what needs to be built",
+  "files": [
+    {
+      "path": "relative/file/path",
+      "language": "python|javascript|typescript|html|css|sql",
+      "purpose": "What this file does",
+      "dependencies": ["other file paths this depends on"]
+    }
+  ],
+  "test_strategy": "How to verify this works",
+  "alternatives": [
+    {
+      "summary": "Alternative approach description",
+      "files": [... same structure ...],
+      "test_strategy": "How to test this alternative"
+    }
+  ]
+}
+
+Rules for discussion:
+- Propose ONE main architecture as "summary"/"files"
+- Offer 1-2 alternative approaches in "alternatives" (keep them concise)
+- If the user provided feedback, address it specifically
+- Each file should have a single responsibility
+- Include test files for Python/JS projects
+- Use relative paths from the project root
+
+IMPORTANT: Return ONLY valid JSON. No markdown fences, no explanations."""
+
 
 class Orchestrator:
     """End-to-end pipeline: requirement → plan → generate → test → store → report.
@@ -95,6 +131,7 @@ class Orchestrator:
         self.sandbox = sandbox
         self.kb = knowledge_base
         self.planner_llm = LLMClient(self.config.get("planner", {}))
+        self.discuss_llm = LLMClient(self.config.get("discuss", {}) or self.config.get("planner", {}))
         self.healer_llm = LLMClient(self.config.get("healer", {}))
         self.code_agent = CodeAgent(
             model_config=self.config.get("code_agent", {}),
@@ -189,6 +226,183 @@ class Orchestrator:
             total_attempts=total_attempts,
             corrections=total_corrections,
         )
+
+    # ── Discussion-style Planning ─────────────────────────────────
+
+    async def plan_draft(
+        self,
+        requirement: str,
+        context: Optional[str] = None,
+    ) -> PlanDraft:
+        """Generate an initial architecture draft for user discussion.
+
+        Produces a main proposal + 1-2 alternatives.
+        The draft can be displayed via `.present()` for user review.
+        """
+        messages = [
+            {"role": "system", "content": DISCUSSION_PROMPT},
+            {"role": "user", "content": requirement},
+        ]
+        if context:
+            messages.append({"role": "user", "content": f"Context:\n{context}"})
+
+        plan_text = await self.discuss_llm.chat(
+            messages=messages,
+            model=self.config.get("planner_model", "deepseek-v4-flash"),
+            max_tokens=3072,
+            reasoning_effort="max",
+            response_format=self._plan_schema(),
+        )
+
+        data = json.loads(plan_text)
+        plan = ProjectPlan(**data)
+        alternatives = [ProjectPlan(**a) for a in data.get("alternatives", [])]
+
+        return PlanDraft(
+            plan=plan,
+            alternatives=alternatives,
+            discussion=[{"role": "assistant", "content": f"Draft: {plan.summary}"}],
+            iteration=1,
+        )
+
+    async def plan_refine(
+        self,
+        draft: PlanDraft,
+        feedback: str,
+    ) -> PlanDraft:
+        """Refine an existing draft based on user feedback.
+
+        The LLM receives the current plan + user feedback and produces
+        an updated proposal. Discussion history is preserved.
+        """
+        # Build a context-rich prompt with the current plan and history
+        current_plan_str = draft.plan.model_dump_json(indent=2)
+        prompt = (
+            f"User requirement (original): {draft.plan.summary}\n\n"
+            f"Current architecture plan:\n{current_plan_str}\n\n"
+            f"User feedback: {feedback}\n\n"
+            f"Please revise the architecture to address this feedback. "
+            f"Output the updated plan in JSON format."
+        )
+
+        discussion_entry = {"role": "user", "content": feedback}
+
+        messages = [
+            {"role": "system", "content": DISCUSSION_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+
+        plan_text = await self.discuss_llm.chat(
+            messages=messages,
+            model=self.config.get("planner_model", "deepseek-v4-flash"),
+            max_tokens=3072,
+            reasoning_effort="max",
+            response_format=self._plan_schema(),
+        )
+
+        data = json.loads(plan_text)
+        plan = ProjectPlan(**data)
+        alternatives = [ProjectPlan(**a) for a in data.get("alternatives", [])]
+
+        history = list(draft.discussion)
+        history.append(discussion_entry)
+        history.append({"role": "assistant", "content": f"Revised: {plan.summary}"})
+
+        return PlanDraft(
+            plan=plan,
+            alternatives=alternatives,
+            discussion=history,
+            confirmed=False,
+            iteration=draft.iteration + 1,
+        )
+
+    async def run_with_plan(
+        self,
+        plan: ProjectPlan,
+        requirement: Optional[str] = None,
+    ) -> PipelineResult:
+        """Execute the full pipeline with a pre-confirmed plan.
+
+        Skips the planning step and goes directly to code generation.
+        This is the entry point after the user confirms a PlanDraft.
+        """
+        start_time = time.time()
+        total_attempts = 0
+
+        files_plan = plan.files
+        summary = plan.summary
+        test_strategy = plan.test_strategy
+
+        # Generate + Sandbox Test + Heal
+        pipeline_files: list[PipelineFileResult] = []
+        all_generation_success = True
+
+        for file_spec in files_plan:
+            file_result = await self._generate_file_with_retry(
+                file_spec=file_spec,
+                project_summary=summary,
+                all_file_paths=[f.path for f in files_plan],
+            )
+            total_attempts += file_result.attempts
+            pipeline_files.append(file_result)
+            if not file_result.success:
+                all_generation_success = False
+
+        # Pipeline Test
+        pipeline_test_result: Optional[SandboxResult] = None
+        if self.sandbox and all_generation_success:
+            pipeline_test_result = await self._run_pipeline_tests(
+                files_plan=[f.model_dump() for f in files_plan],
+                test_strategy=test_strategy,
+            )
+
+        # KB Store
+        kb_stored = False
+        if self.kb and all_generation_success:
+            kb_stored = await self._store_pipeline_result(
+                requirement=requirement or summary,
+                summary=summary,
+                files=pipeline_files,
+                test_strategy=test_strategy,
+            )
+
+        overall_success = all_generation_success
+        if pipeline_test_result is not None:
+            overall_success = overall_success and pipeline_test_result.success
+
+        ptest = None
+        if pipeline_test_result:
+            ptest = PipelineTestResult(
+                success=pipeline_test_result.success,
+                stdout=pipeline_test_result.stdout,
+                stderr=pipeline_test_result.stderr,
+            )
+
+        return PipelineResult(
+            success=overall_success,
+            summary=summary,
+            files=pipeline_files,
+            test_strategy=test_strategy,
+            pipeline_test=ptest,
+            kb_stored=kb_stored,
+            total_duration=time.time() - start_time,
+            total_attempts=total_attempts,
+        )
+
+    def _plan_schema(self) -> dict:
+        """Generate the JSON Schema dict for LLM response_format."""
+        schema = ProjectPlan.model_json_schema()
+        # Add alternatives to the schema
+        alt_schema = ProjectPlan.model_json_schema()
+        schema["properties"]["alternatives"] = {
+            "type": "array",
+            "items": alt_schema,
+            "description": "Alternative approaches",
+        }
+        return {
+            "type": "json_schema",
+            "json_schema": {"name": "DiscussionPlan", "schema": schema},
+        }
 
     async def _generate_file_with_retry(
         self,

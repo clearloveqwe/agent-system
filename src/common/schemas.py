@@ -43,6 +43,65 @@ class ProjectPlan(BaseModel):
     )
 
 
+class PlanDraft(BaseModel):
+    """A plan draft for user discussion and refinement cycle.
+
+    Usage:
+        draft = await orchestrator.plan_draft(requirement)
+        # Show draft.present() to user, collect feedback
+        draft = await orchestrator.plan_refine(draft, feedback)
+        # Repeat until user confirms, then:
+        result = await orchestrator.run_with_plan(draft.plan)
+    """
+
+    plan: ProjectPlan = Field(description="The current proposed plan")
+    alternatives: list[ProjectPlan] = Field(
+        default_factory=list,
+        description="Alternative approaches offered alongside the main plan",
+    )
+    discussion: list[dict] = Field(
+        default_factory=list,
+        description="Discussion history: [{'role': 'user'|'assistant', 'content': ...}]",
+    )
+    confirmed: bool = False
+    iteration: int = 1
+
+    def present(self) -> str:
+        """Format the draft for display to the user."""
+        lines = [f"## 📋 Architecture Draft (v{self.iteration})"]
+        lines.append("")
+        lines.append(f"**Summary:** {self.plan.summary}")
+        lines.append("")
+        lines.append("### Files")
+        for f in self.plan.files:
+            dep_str = f" (depends on: {', '.join(f.dependencies)})" if f.dependencies else ""
+            lines.append(f"- `{f.path}` — {f.purpose}{dep_str}")
+        lines.append("")
+        lines.append(f"**Test Strategy:** {self.plan.test_strategy}")
+
+        if self.alternatives:
+            lines.append("")
+            lines.append("### Alternative Architectures")
+            for i, alt in enumerate(self.alternatives, 1):
+                lines.append("")
+                lines.append(f"**Option {i}:** {alt.summary}")
+                for f in alt.files:
+                    lines.append(f"  - `{f.path}` — {f.purpose}")
+
+        if self.discussion:
+            lines.append("")
+            lines.append("### Discussion History")
+            for entry in self.discussion[-3:]:  # Last 3 messages
+                role = "👤 You" if entry["role"] == "user" else "🤖 Architect"
+                content = entry["content"][:200]
+                lines.append(f"- **{role}:** {content}")
+
+        lines.append("")
+        lines.append("---")
+        lines.append("*Reply with feedback to refine, or send `confirm` to proceed.*")
+        return "\n".join(lines)
+
+
 # ── Sandbox Result Schema ───────────────────────────────────────
 
 
