@@ -34,6 +34,35 @@ Agents in this repo should:
 4. Write tests before or alongside implementation code
 5. Use structured output (markdown tables, diffs, lists)
 
+## Discussion-Style Planning (RULE: use for all user-facing code generation)
+
+When a user asks to generate code for a project, follow this workflow:
+
+**Step 1: Draft** — Call `orchestrator.plan_draft(requirement)` to generate initial
+architecture draft with 1-2 alternatives. Show the user `draft.present()`.
+
+**Step 2: Discuss** — Wait for user feedback. Call `orchestrator.plan_refine(draft, feedback)`
+to update. Repeat until the user says "confirm" / "proceed" / "继续".
+
+**Step 3: Execute** — Call `orchestrator.run_with_plan(draft.plan)` to generate code,
+run sandbox tests, and store results.
+
+Do NOT skip to code generation without a discussion cycle first. The discussion
+ensures the user sees and approves the architecture before any code is written.
+
+```python
+# Example workflow
+from src.orchestrator.orchestrator import Orchestrator
+
+orc = Orchestrator()
+draft = await orc.plan_draft("Build a todo API")
+print(draft.present())
+# User: "Add SQLite"
+draft = await orc.plan_refine(draft, "Add SQLite")
+# User: "confirm"
+result = await orc.run_with_plan(draft.plan)
+```
+
 ## Directory Layout
 
 - `src/orchestrator/` — Task decomposition, agent orchestration, workflow engine
